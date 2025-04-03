@@ -28,8 +28,7 @@ def findgame_old(boardgame_name):
 
 
 def findgame(game_name):
+    game_name_cor = game_name.strip()
     bgg = BGGClient()
-    game = bgg.game(game_name)
-    return game
-
-
+    game = bgg.game(game_name_cor)
+    return game.rating_average_weight

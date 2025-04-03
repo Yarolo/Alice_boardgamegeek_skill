@@ -12,8 +12,8 @@ itsdangerous
 Jinja2
 MarkupSafe
 platformdirs
-requests
-requests-cache
+requests==2.31.0
+requests-cache==1.1.1
 url-normalize
 urllib3==1.26.6
 Werkzeug
