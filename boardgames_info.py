@@ -1,3 +1,5 @@
+from re import search
+
 from boardgamegeek import BGGClient
 
 import requests
@@ -29,6 +31,31 @@ def findgame_old(boardgame_name):
 
 def findgame(game_name):
     game_name_cor = game_name.strip()
+    games = []
     bgg = BGGClient()
-    game = bgg.game(game_name_cor)
-    return game.rating_average_weight
+    try:
+        game = bgg.game(game_name_cor)
+        return game
+    except Exception:
+        pass
+    search_results = bgg.search(game_name_cor)
+    for i in search_results:
+        try:
+            game = bgg.game(game_id=i.id)
+            if game.users_commented == 0:
+                continue
+            if game.name.lower() == game_name_cor:
+                return game
+            games.append(game)
+        except Exception:
+            print('not game')
+    games = sorted(games, key=lambda x: x.users_commented, reverse=True)
+    return [i.name + ' ' + str(i.year) + '\n' for i in games]
+
+
+def game_base_info(game):
+    return game.description
+
+
+if __name__ == '__main__':
+    print(game_base_info(findgame('Monopoly')))

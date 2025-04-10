@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 import logging
-from boardgames_info import findgame
+from boardgames_info import findgame, game_base_info
 
 app = Flask(__name__)
 
@@ -44,10 +44,18 @@ def handle_dialog(req, res):
                 'Не расслышала имя. Повтори, пожалуйста!'
         else:
             sessionStorage[user_id]['first_name'] = first_name
-            res['response']['text'] = 'Приятно познакомиться. Уровень сложности какой настольной игры хочешь узнать?'
+            res['response']['text'] = 'Приятно познакомиться. Информацию о какой настольной игре хочешь узнать?'
     else:
-        res['response'][
-            'text'] = f"Игра имеет уровень сложности {findgame(req['request']['original_utterance'])} баллов из 5"
+        boardgames = findgame(req['request']['original_utterance'])
+        res['response']['text'] = 'Это может занять время. подождите, пожалуйста'
+        if isinstance(boardgames, list):
+            res['response']['text'] = f'''Нет полного соответствия. Уточните свой запрос об игре. 
+            Список частичных соответствий частичных соответствий:
+            {''.join(boardgames)}'''
+        else:
+            inf = '\n'.join(game_base_info(boardgames).split('\n')[:2])
+            res['response'][
+                'text'] = f"Игра {boardgames.name}.\n {inf}"
 
 
 def get_first_name(req):
