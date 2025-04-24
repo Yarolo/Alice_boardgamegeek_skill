@@ -223,12 +223,12 @@ if __name__ == '__main__':
         # Тестирование точного поиска
         print("=== Точный поиск ===")
         monopoly = findgame("Monopoly")
-        print(game_base_info(monopoly))
+        print(monopoly['image'])
 
         # Тестирование частичного совпадения
         print("\n=== Частичный поиск ===")
         card_games = findgame("Card")
-        print(game_base_info(card_games))
+        print(card_games)
 
         # Тестирование кэширования
         print("\n=== Тест кэширования ===")
