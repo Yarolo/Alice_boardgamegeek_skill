@@ -4,6 +4,7 @@ from typing import Union, List, Dict, Any
 import json
 from datetime import datetime
 import re
+import html
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,26 +48,19 @@ class BoardGameFinder:
         with open(self.partial_cache_file, 'w') as f:
             json.dump(self.partial_cache, f, indent=2)
 
-    def _format_description(self, description: str, max_length: int = 300) -> str:
+    def _format_description(self, description: str, max_length: int = 500) -> str:
         if not description or description == 'Описание отсутствует':
             return description
-
-        description = ' '.join(description.split('\n'))
-        sentences = re.split(r'(?<=[.!?])\s+', description)
-        formatted_desc = []
-        current_length = 0
-
-        for sentence in sentences:
-            if current_length + len(sentence) <= max_length:
-                formatted_desc.append(sentence)
-                current_length += len(sentence)
+        description = html.unescape(re.sub(r'<[^>]+>', '', description))
+        description = ' '.join(description.split())
+        if len(description) > max_length:
+            truncated = description[:max_length]
+            last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
+            if last_punct > 0:
+                description = truncated[:last_punct + 1]
             else:
-                remaining = max_length - current_length
-                if remaining > 20:
-                    formatted_desc.append(sentence[:remaining] + '...')
-                break
-
-        return ' '.join(formatted_desc)
+                description = truncated + '...'
+        return description
 
     def find_game(self, game_name: str, use_cache: bool = True):
         game_name = game_name.strip().lower()
@@ -121,7 +115,7 @@ class BoardGameFinder:
 
             try:
                 game = self.bgg.game(game_id=item['id'])
-                if getattr(game, 'users_commented', 0) > 0:
+                if getattr(game, 'users_rated', 0) > 0:
                     formatted_game = self._format_game_data(game)
                     games.append(formatted_game)
 
@@ -179,9 +173,9 @@ class BoardGameFinder:
         return sorted(
             games,
             key=lambda x: (
-                -x['users_commented'],
+                -x.get('users_rated', 0),
                 -self._match_score(x['name'], game_name),
-                -x['rating']
+                -x.get('rating', 0)
             )
         )
 
@@ -193,9 +187,9 @@ class BoardGameFinder:
             'description': self._format_description(getattr(game, 'description', 'Описание отсутствует')),
             'players': f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A",
             'playtime': f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A",
-            'rating': getattr(game, 'rating_average', 0),
-            'weight': getattr(game, 'weight_average', 0),
-            'users_commented': getattr(game, 'users_commented', 0),
+            'rating': getattr(game, 'average_rating', 0),
+            'weight': getattr(game, 'average_weight', 0),
+            'users_rated': getattr(game, 'users_rated', 0),
             'categories': getattr(game, 'categories', []),
             'mechanics': getattr(game, 'mechanics', []),
             'thumbnail': getattr(game, 'thumbnail', None),
@@ -246,7 +240,7 @@ class BoardGameFinder:
             f"🎲 {game['name']} ({game['year']})",
             f"👥 Игроков: {game['players']}",
             f"⏱ Время игры: {game['playtime']}",
-            f"⭐ Рейтинг: {game['rating']:.2f}",
+            f"⭐ Рейтинг: {game['rating']:.2f} (на основе {game.get('users_rated', 0)} оценок)",
             f"🏋️ Сложность: {weight_str}",
             f"📝 Описание: {game['description']}",
             f"🏷 Категории: {', '.join(game['categories'][:5])}" if game['categories'] else "",
