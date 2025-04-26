@@ -1,11 +1,10 @@
 from boardgamegeek import BGGClient, BGGItemNotFoundError
-from functools import lru_cache
 import logging
-from typing import Union, List, Optional, Dict, Any
+from typing import Union, List, Dict, Any
 import json
 from datetime import datetime
+import re
 
-# Настройка продвинутого логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -18,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 class BoardGameFinder:
-    """Класс для поиска и обработки информации о настольных играх."""
-
     def __init__(self):
         self.bgg = BGGClient(
             requests_per_minute=30,
@@ -28,45 +25,66 @@ class BoardGameFinder:
             timeout=30
         )
         self.cache_file = 'games_cache.json'
-        self._load_cache()
+        self.partial_cache_file = 'partial_cache.json'
+        self._load_caches()
 
-    def _load_cache(self) -> None:
-        """Загружает кэш из файла."""
+    def _load_caches(self):
         try:
             with open(self.cache_file, 'r') as f:
                 self.cache = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             self.cache = {}
 
-    def _save_cache(self) -> None:
-        """Сохраняет кэш в файл."""
+        try:
+            with open(self.partial_cache_file, 'r') as f:
+                self.partial_cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.partial_cache = {}
+
+    def _save_caches(self):
         with open(self.cache_file, 'w') as f:
             json.dump(self.cache, f, indent=2)
+        with open(self.partial_cache_file, 'w') as f:
+            json.dump(self.partial_cache, f, indent=2)
 
-    @lru_cache(maxsize=1000)
-    def find_game(self, game_name: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        """
-        Ищет игру по названию с использованием кэширования и продвинутых алгоритмов поиска.
+    def _format_description(self, description: str, max_length: int = 300) -> str:
+        if not description or description == 'Описание отсутствует':
+            return description
 
-        Args:
-            game_name: Название игры для поиска
+        description = ' '.join(description.split('\n'))
+        sentences = re.split(r'(?<=[.!?])\s+', description)
+        formatted_desc = []
+        current_length = 0
 
-        Returns:
-            - Словарь с информацией об игре при точном совпадении
-            - Список словарей с частичными совпадениями
-        """
+        for sentence in sentences:
+            if current_length + len(sentence) <= max_length:
+                formatted_desc.append(sentence)
+                current_length += len(sentence)
+            else:
+                remaining = max_length - current_length
+                if remaining > 20:
+                    formatted_desc.append(sentence[:remaining] + '...')
+                break
+
+        return ' '.join(formatted_desc)
+
+    def find_game(self, game_name: str, use_cache: bool = True):
         game_name = game_name.strip().lower()
         if not game_name:
             raise ValueError("Название игры не может быть пустым")
 
-        # Проверка кэша
-        if game_name in self.cache:
+        if use_cache and game_name in self.cache:
             cached_data = self.cache[game_name]
-            if datetime.now().timestamp() - cached_data['timestamp'] < 86400:  # 1 день
+            if datetime.now().timestamp() - cached_data['timestamp'] < 86400:
                 return cached_data['data']
 
+        partial_key = f"partial_{game_name}"
+        if use_cache and partial_key in self.partial_cache:
+            partial_data = self.partial_cache[partial_key]
+            if datetime.now().timestamp() - partial_data['timestamp'] < 86400:
+                return self._continue_from_partial_cache(game_name, partial_data)
+
         try:
-            # Попытка точного поиска
             game = self.bgg.game(game_name)
             if game and game.name.lower() == game_name:
                 result = self._format_game_data(game)
@@ -74,33 +92,91 @@ class BoardGameFinder:
                 return result
         except BGGItemNotFoundError:
             pass
+        except Exception as e:
+            logger.warning(f"Ошибка при поиске игры {game_name}: {str(e)}")
+            if partial_key in self.partial_cache:
+                del self.partial_cache[partial_key]
 
-        # Поиск по частичному совпадению
-        search_results = self.bgg.search(game_name)
-        if not search_results:
-            raise ValueError(f"Игра '{game_name}' не найдена")
+        try:
+            return self._find_partial_matches(game_name)
+        except Exception as e:
+            if partial_key in self.partial_cache:
+                del self.partial_cache[partial_key]
+                self._save_caches()
+            raise
 
-        games = []
-        for item in search_results[:15]:  # Ограничиваем количество проверяемых игр
+    def _continue_from_partial_cache(self, game_name: str, partial_data: dict):
+        last_index = partial_data.get('last_index', 0)
+        processed_ids = partial_data.get('processed_ids', [])
+        search_results = partial_data.get('search_results', [])
+        games = partial_data.get('games', [])
+
+        for i in range(last_index, len(search_results)):
+            if i >= 15:
+                break
+
+            item = search_results[i]
+            if item['id'] in processed_ids:
+                continue
+
             try:
-                game = self.bgg.game(game_id=item.id)
-                if game.users_commented > 0:  # Игнорируем игры без комментариев
+                game = self.bgg.game(game_id=item['id'])
+                if getattr(game, 'users_commented', 0) > 0:
                     formatted_game = self._format_game_data(game)
                     games.append(formatted_game)
 
-                    # Если нашли точное совпадение - возвращаем сразу
                     if game.name.lower() == game_name:
                         self._update_cache(game_name, formatted_game)
                         return formatted_game
+
+                processed_ids.append(item['id'])
+
+                self.partial_cache[f"partial_{game_name}"] = {
+                    'search_results': search_results,
+                    'games': games,
+                    'processed_ids': processed_ids,
+                    'last_index': i + 1,
+                    'timestamp': datetime.now().timestamp()
+                }
+                self._save_caches()
+
             except Exception as e:
-                logger.warning(f"Ошибка при получении игры {item.id}: {str(e)}")
+                logger.warning(f"Ошибка при обработке игры {item['id']}: {str(e)}")
                 continue
 
-        if not games:
-            raise ValueError("Не найдено подходящих игр")
+        if games:
+            sorted_games = self._sort_games(games, game_name)
+            self._update_cache(game_name, sorted_games)
+            if f"partial_{game_name}" in self.partial_cache:
+                del self.partial_cache[f"partial_{game_name}"]
+                self._save_caches()
+            return sorted_games
 
-        # Сортируем по популярности и релевантности
-        sorted_games = sorted(
+        raise ValueError("Не найдено подходящих игр")
+
+    def _find_partial_matches(self, game_name: str):
+        try:
+            search_results = self.bgg.search(game_name)
+            if not search_results:
+                raise ValueError(f"Игра '{game_name}' не найдена")
+
+            partial_key = f"partial_{game_name}"
+            self.partial_cache[partial_key] = {
+                'search_results': [{'id': item.id, 'name': item.name} for item in search_results],
+                'games': [],
+                'processed_ids': [],
+                'last_index': 0,
+                'timestamp': datetime.now().timestamp()
+            }
+            self._save_caches()
+
+            return self._continue_from_partial_cache(game_name, self.partial_cache[partial_key])
+        except Exception as e:
+            logger.error(f"Ошибка при поиске частичных совпадений: {str(e)}")
+            raise
+
+    def _sort_games(self, games: List[Dict], game_name: str):
+        return sorted(
             games,
             key=lambda x: (
                 -x['users_commented'],
@@ -109,19 +185,16 @@ class BoardGameFinder:
             )
         )
 
-        self._update_cache(game_name, sorted_games)
-        return sorted_games
-
-    def _format_game_data(self, game) -> Dict[str, Any]:
-        """Форматирует данные игры в словарь."""
+    def _format_game_data(self, game):
         return {
             'id': game.id,
             'name': game.name,
             'year': game.year,
-            'description': getattr(game, 'description', 'Описание отсутствует'),
+            'description': self._format_description(getattr(game, 'description', 'Описание отсутствует')),
             'players': f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A",
             'playtime': f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A",
             'rating': getattr(game, 'rating_average', 0),
+            'weight': getattr(game, 'weight_average', 0),
             'users_commented': getattr(game, 'users_commented', 0),
             'categories': getattr(game, 'categories', []),
             'mechanics': getattr(game, 'mechanics', []),
@@ -130,107 +203,97 @@ class BoardGameFinder:
             'last_updated': datetime.now().timestamp()
         }
 
-    def _match_score(self, game_name: str, query: str) -> float:
-        """Вычисляет оценку соответствия названия игры запросу."""
+    def _match_score(self, game_name: str, query: str):
         game_name = game_name.lower()
         query = query.lower()
 
         if game_name == query:
             return 1.0
 
-        # Проверяем содержит ли название запрос
         if query in game_name:
             return 0.9
 
-        # Проверяем на схожесть слов
         query_words = set(query.split())
         game_words = set(game_name.split())
         common_words = query_words & game_words
 
         return len(common_words) / max(len(query_words), 1)
 
-    def _update_cache(self, game_name: str, data: Any) -> None:
-        """Обновляет кэш данных."""
+    def _update_cache(self, game_name: str, data: Any):
         self.cache[game_name] = {
             'data': data,
             'timestamp': datetime.now().timestamp()
         }
-        self._save_cache()
+        self._save_caches()
 
     def get_game_info(self, game_data: Union[Dict, List]) -> str:
-        """
-        Форматирует информацию об игре в читаемый текст.
-
-        Args:
-            game_data: Данные игры (одиночные или список)
-
-        Returns:
-            Форматированная строка с информацией
-        """
         if isinstance(game_data, list):
             return self._format_multiple_games(game_data)
         return self._format_single_game(game_data)
 
     def _format_single_game(self, game: Dict[str, Any]) -> str:
-        """Форматирует информацию об одной игре."""
+        weight = game.get('weight', 0)
+        if weight == 0:
+            weight_str = "Не указана"
+        elif weight < 2:
+            weight_str = f"{weight:.1f} (Лёгкая)"
+        elif weight < 3.5:
+            weight_str = f"{weight:.1f} (Средняя)"
+        else:
+            weight_str = f"{weight:.1f} (Сложная)"
+
         info = [
             f"🎲 {game['name']} ({game['year']})",
             f"👥 Игроков: {game['players']}",
             f"⏱ Время игры: {game['playtime']}",
             f"⭐ Рейтинг: {game['rating']:.2f}",
-            f"📝 Описание: {game['description'][:300]}..." if len(game['description']) > 300 else game['description'],
+            f"🏋️ Сложность: {weight_str}",
+            f"📝 Описание: {game['description']}",
             f"🏷 Категории: {', '.join(game['categories'][:5])}" if game['categories'] else "",
             f"⚙ Механики: {', '.join(game['mechanics'][:5])}" if game['mechanics'] else ""
         ]
         return '\n'.join(filter(None, info))
 
     def _format_multiple_games(self, games: List[Dict[str, Any]]) -> str:
-        """Форматирует информацию о нескольких играх."""
         if not games:
             return "Игры не найдены"
 
         games_list = []
-        for i, game in enumerate(games[:5], 1):  # Ограничиваем 5 играми
+        for i, game in enumerate(games[:5], 1):
+            weight = game.get('weight', 0)
+            weight_str = f"{weight:.1f}" if weight > 0 else "?"
+
             games_list.append(
                 f"{i}. {game['name']} ({game['year']}) - ⭐ {game['rating']:.1f} "
-                f"(👥 {game['players']}, ⏱ {game['playtime']})"
+                f"(🏋️ {weight_str}, 👥 {game['players']}, ⏱ {game['playtime']})"
             )
 
-        return (
-                "Найдено несколько игр. Уточните запрос:\n\n" +
+        return ("Найдено несколько игр. Уточните запрос:\n\n" +
                 '\n'.join(games_list) +
-                "\n\nПоказано топ-5 из найденных игр."
-        )
+                "\n\nПоказано топ-5 из найденных игр.")
 
 
-# Интерфейсные функции для обратной совместимости
 finder = BoardGameFinder()
 
 
-def findgame(game_name: str) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-    """Интерфейсная функция для поиска игры (совместимость со старым кодом)."""
+def findgame(game_name: str):
     return finder.find_game(game_name)
 
 
 def game_base_info(game_data: Union[Dict, List]) -> str:
-    """Интерфейсная функция для получения информации об игре (совместимость)."""
     return finder.get_game_info(game_data)
 
 
 if __name__ == '__main__':
-    # Примеры использования
     try:
-        # Тестирование точного поиска
         print("=== Точный поиск ===")
         monopoly = findgame("Monopoly")
-        print(monopoly['image'])
+        print(game_base_info(monopoly))
 
-        # Тестирование частичного совпадения
         print("\n=== Частичный поиск ===")
         card_games = findgame("Card")
-        print(card_games)
+        print(game_base_info(card_games))
 
-        # Тестирование кэширования
         print("\n=== Тест кэширования ===")
         start_time = datetime.now()
         cached_result = findgame("Monopoly")
