@@ -246,7 +246,7 @@ class BoardGameFinder:
             f"👥 Игроков: {game['players']}",
             f"⏱ Время игры: {game['playtime']}",
             f"⭐ Рейтинг: {game['rating']:.2f} (на основе {game.get('users_rated', 0)} оценок)",
-            f"🏋️ Сложность: {weight_str}",
+            f"🧠 Сложность: {weight_str}",
             f"📝 Описание: {game['description']}",
             f"🏷 Категории: {', '.join(game['categories'][:5])}" if game['categories'] else "",
             f"⚙ Механики: {', '.join(game['mechanics'][:5])}" if game['mechanics'] else ""

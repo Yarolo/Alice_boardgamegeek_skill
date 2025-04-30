@@ -3,13 +3,15 @@ from flask import Flask, request, jsonify
 import logging
 from boardgames_info import findgame, game_base_info
 from http_work import skill_image_disconnect, image_to_skill_connect
+import random
 
 app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO)
 
 sessionStorage = {}
-creature = {}
+
+DICE = {1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅'}
 
 
 @app.route('/post', methods=['POST'])
@@ -99,7 +101,28 @@ def acquaintance(req, res, user_id):
 
 
 def dice_dialog(req, res):
-    pass
+    number_dices = get_number(req)
+    result = []
+    for i in range(number_dices):
+        result.append(DICE[random.choice(range(1, 7))])
+    result = sorted(result)
+    answer = f'Ваш результат:\n{"".join(result)}'
+    if number_dices == 5:
+        combos = []
+        for i in DICE.values():
+            combos.append(result.count(i))
+        if 5 in combos:
+            answer += '\n Комбинация из кубиков: Покер'
+        elif 3 in combos and 2 in combos:
+            answer += '\n Комбинация из кубиков: Фулхаус'
+        elif 4 == combos.count(1):
+            answer += '\n Комбинация из кубиков: Короткий стрит'
+        elif 5 == combos.count(1):
+            answer += '\n Комбинация из кубиков: Длинный стрит'
+        elif 4 in combos:
+            answer += '\n Комбинация из кубиков: Каре'
+
+    res['response']['text'] = answer
 
 
 def get_first_name(req):
