@@ -18,3 +18,4 @@ url-normalize
 urllib3==1.26.6
 Werkzeug
 xmltodict
+sqlalchemy

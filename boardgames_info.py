@@ -5,6 +5,11 @@ import json
 from datetime import datetime
 import re
 import html
+from data import db_session
+import os
+
+if not (os.access('db/cache.db', os.F_OK)):
+    db_session.global_init("db/cache.db")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +62,7 @@ class BoardGameFinder:
             truncated = description[:max_length]
             last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
             if last_punct > 0:
-                description = truncated[:last_punct + 1]
+                description = truncated[:last_punct + 1] + '..'
             else:
                 description = truncated + '...'
         return description
@@ -187,8 +192,8 @@ class BoardGameFinder:
             'description': self._format_description(getattr(game, 'description', 'Описание отсутствует')),
             'players': f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A",
             'playtime': f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A",
-            'rating': getattr(game, 'average_rating', 0),
-            'weight': getattr(game, 'average_weight', 0),
+            'rating': getattr(game, 'rating_average', 0),
+            'weight': getattr(game, 'rating_average_weight', 0),
             'users_rated': getattr(game, 'users_rated', 0),
             'categories': getattr(game, 'categories', []),
             'mechanics': getattr(game, 'mechanics', []),
