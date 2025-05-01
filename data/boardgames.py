@@ -20,7 +20,8 @@ class Boardgames(SqlAlchemyBase):
     mechanics = sqlalchemy.Column(sqlalchemy.String)
     thumbnail = sqlalchemy.Column(sqlalchemy.String)
     image = sqlalchemy.Column(sqlalchemy.String)
-    last_updated = sqlalchemy.Column(sqlalchemy.Float)
+    search_query = sqlalchemy.Column(sqlalchemy.String)
+    timestamp = sqlalchemy.Column(sqlalchemy.Float)
 
 
     def __repr__(self):
