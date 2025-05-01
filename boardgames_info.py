@@ -5,15 +5,19 @@ import json
 from datetime import datetime
 import re
 import html
-from data import db_session
 import os
 import time
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-if not (os.access('db/cache.db', os.F_OK)):
-    db_session.global_init("db/cache.db")
+
+if not os.path.exists('db'):
+    os.makedirs('db')
+
+db_path = 'db/cache.db'
+engine = create_engine(f'sqlite:///{db_path}')
+Base = declarative_base()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,8 +28,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-Base = declarative_base()
 
 
 class CachedGame(Base):
@@ -49,7 +51,18 @@ class CachedGame(Base):
     timestamp = Column(Float)
 
 
-engine = create_engine('sqlite:///db/cache.db')
+class PartialCache(Base):
+    __tablename__ = 'partial_cache'
+
+    id = Column(Integer, primary_key=True)
+    search_query = Column(String, index=True)
+    search_results = Column(Text)
+    games = Column(Text)
+    processed_ids = Column(Text)
+    last_index = Column(Integer)
+    timestamp = Column(Float)
+
+
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
@@ -62,29 +75,99 @@ class BoardGameFinder:
             retry_delay=5,
             timeout=30
         )
-        self.cache_file = 'games_cache.json'
-        self.partial_cache_file = 'partial_cache.json'
-        self._load_caches()
         self.search_timeout = 4.5
 
-    def _load_caches(self):
+    def _get_cached_game(self, game_name: str) -> Union[Dict, None]:
+        session = Session()
         try:
-            with open(self.cache_file, 'r') as f:
-                self.cache = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.cache = {}
+            cached = session.query(CachedGame).filter_by(search_query=game_name).order_by(
+                CachedGame.timestamp.desc()).first()
+            if cached and (datetime.now().timestamp() - cached.timestamp < 86400):
+                return self._format_db_game_to_dict(cached)
+            return None
+        except Exception as e:
+            logger.error(f"Error getting cached game: {str(e)}")
+            return None
+        finally:
+            session.close()
 
+    def _format_db_game_to_dict(self, db_game: CachedGame) -> Dict:
+        return {
+            'id': db_game.game_id,
+            'name': db_game.name,
+            'year': db_game.year,
+            'description': db_game.description,
+            'players': db_game.players,
+            'playtime': db_game.playtime,
+            'rating': db_game.rating,
+            'weight': db_game.weight,
+            'users_rated': db_game.users_rated,
+            'categories': db_game.categories.split(',') if db_game.categories else [],
+            'mechanics': db_game.mechanics.split(',') if db_game.mechanics else [],
+            'thumbnail': db_game.thumbnail,
+            'image': db_game.image,
+            'last_updated': db_game.timestamp
+        }
+
+    def _get_partial_cache(self, game_name: str) -> Union[Dict, None]:
+        session = Session()
         try:
-            with open(self.partial_cache_file, 'r') as f:
-                self.partial_cache = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.partial_cache = {}
+            partial = session.query(PartialCache).filter_by(search_query=game_name).first()
+            if partial and (datetime.now().timestamp() - partial.timestamp < 86400):
+                return {
+                    'search_results': json.loads(partial.search_results) if partial.search_results else [],
+                    'games': json.loads(partial.games) if partial.games else [],
+                    'processed_ids': json.loads(partial.processed_ids) if partial.processed_ids else [],
+                    'last_index': partial.last_index,
+                    'timestamp': partial.timestamp
+                }
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in partial cache: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting partial cache: {str(e)}")
+            return None
+        finally:
+            session.close()
 
-    def _save_caches(self):
-        with open(self.cache_file, 'w') as f:
-            json.dump(self.cache, f, indent=2)
-        with open(self.partial_cache_file, 'w') as f:
-            json.dump(self.partial_cache, f, indent=2)
+    def _save_partial_cache(self, game_name: str, data: Dict):
+        session = Session()
+        try:
+            existing = session.query(PartialCache).filter_by(search_query=game_name).first()
+            if existing:
+                existing.search_results = json.dumps(data['search_results'])
+                existing.games = json.dumps(data['games'])
+                existing.processed_ids = json.dumps(data['processed_ids'])
+                existing.last_index = data['last_index']
+                existing.timestamp = data['timestamp']
+            else:
+                new_cache = PartialCache(
+                    search_query=game_name,
+                    search_results=json.dumps(data['search_results']),
+                    games=json.dumps(data['games']),
+                    processed_ids=json.dumps(data['processed_ids']),
+                    last_index=data['last_index'],
+                    timestamp=data['timestamp']
+                )
+                session.add(new_cache)
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error saving partial cache: {str(e)}")
+            session.rollback()
+        finally:
+            session.close()
+
+    def _delete_partial_cache(self, game_name: str):
+        session = Session()
+        try:
+            session.query(PartialCache).filter_by(search_query=game_name).delete()
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error deleting partial cache: {str(e)}")
+            session.rollback()
+        finally:
+            session.close()
 
     def _save_to_db(self, game_data: Dict, search_query: str):
         session = Session()
@@ -144,21 +227,21 @@ class BoardGameFinder:
                 description = truncated + '...'
         return description
 
-    def find_game(self, game_name: str, use_cache: bool = True):
+    def find_game(self, game_name: str, use_cache: bool = True) -> Union[Dict, List[Dict], None]:
         start_time = time.time()
         game_name = game_name.strip().lower()
         if not game_name:
             raise ValueError("Название игры не может быть пустым")
 
-        if use_cache and game_name in self.cache:
-            cached_data = self.cache[game_name]
-            if datetime.now().timestamp() - cached_data['timestamp'] < 86400:
-                return cached_data['data']
+        if use_cache:
+            cached_data = self._get_cached_game(game_name)
+            if cached_data:
+                return cached_data
 
         partial_key = f"partial_{game_name}"
-        if use_cache and partial_key in self.partial_cache:
-            partial_data = self.partial_cache[partial_key]
-            if datetime.now().timestamp() - partial_data['timestamp'] < 86400:
+        if use_cache:
+            partial_data = self._get_partial_cache(partial_key)
+            if partial_data:
                 result = self._continue_from_partial_cache(game_name, partial_data, start_time)
                 if result is not None:
                     return result
@@ -167,23 +250,19 @@ class BoardGameFinder:
             game = self.bgg.game(game_name)
             if game and game.name.lower() == game_name:
                 result = self._format_game_data(game)
-                self._update_cache(game_name, result)
                 self._save_to_db(result, game_name)
                 return result
         except BGGItemNotFoundError:
             pass
         except Exception as e:
             logger.warning(f"Ошибка при поиске игры {game_name}: {str(e)}")
-            if partial_key in self.partial_cache:
-                del self.partial_cache[partial_key]
+            self._delete_partial_cache(partial_key)
 
         try:
             return self._find_partial_matches(game_name, start_time)
         except Exception as e:
-            if partial_key in self.partial_cache:
-                del self.partial_cache[partial_key]
-                self._save_caches()
-            raise
+            self._delete_partial_cache(partial_key)
+            raise ValueError(f"Не удалось найти игру: {str(e)}")
 
     def _continue_from_partial_cache(self, game_name: str, partial_data: dict, start_time: float):
         last_index = partial_data.get('last_index', 0)
@@ -216,19 +295,18 @@ class BoardGameFinder:
                     self._save_to_db(formatted_game, game_name)
 
                     if game.name.lower() == game_name:
-                        self._update_cache(game_name, formatted_game)
+                        self._delete_partial_cache(f"partial_{game_name}")
                         return formatted_game
 
                 processed_ids.append(item['id'])
 
-                self.partial_cache[f"partial_{game_name}"] = {
+                self._save_partial_cache(f"partial_{game_name}", {
                     'search_results': search_results,
                     'games': games,
                     'processed_ids': processed_ids,
                     'last_index': i + 1,
                     'timestamp': datetime.now().timestamp()
-                }
-                self._save_caches()
+                })
 
             except Exception as e:
                 logger.warning(f"Ошибка при обработке игры {item['id']}: {str(e)}")
@@ -236,12 +314,9 @@ class BoardGameFinder:
 
         if games:
             sorted_games = self._sort_games(games, game_name)
-            self._update_cache(game_name, sorted_games)
             for game in sorted_games:
                 self._save_to_db(game, game_name)
-            if f"partial_{game_name}" in self.partial_cache:
-                del self.partial_cache[f"partial_{game_name}"]
-                self._save_caches()
+            self._delete_partial_cache(f"partial_{game_name}")
             return sorted_games
 
         return None
@@ -257,29 +332,33 @@ class BoardGameFinder:
                 raise ValueError(f"Игра '{game_name}' не найдена")
 
             partial_key = f"partial_{game_name}"
-            self.partial_cache[partial_key] = {
+            self._save_partial_cache(partial_key, {
                 'search_results': [{'id': item.id, 'name': item.name} for item in search_results],
                 'games': [],
                 'processed_ids': [],
                 'last_index': 0,
                 'timestamp': datetime.now().timestamp()
-            }
-            self._save_caches()
+            })
 
-            result = self._continue_from_partial_cache(game_name, self.partial_cache[partial_key], start_time)
-            if result is None and partial_key in self.partial_cache:
-                if self.partial_cache[partial_key]['games']:
-                    games = self.partial_cache[partial_key]['games']
-                    sorted_games = self._sort_games(games, game_name)
+            partial_data = self._get_partial_cache(partial_key)
+            if not partial_data:
+                raise ValueError("Не удалось сохранить частичный кэш")
+
+            result = self._continue_from_partial_cache(game_name, partial_data, start_time)
+            if result is None:
+                partial_data = self._get_partial_cache(partial_key)
+                if partial_data and partial_data.get('games'):
+                    sorted_games = self._sort_games(partial_data['games'], game_name)
                     for game in sorted_games:
                         self._save_to_db(game, game_name)
                     return sorted_games
             return result
         except Exception as e:
             logger.error(f"Ошибка при поиске частичных совпадений: {str(e)}")
-            raise
+            self._delete_partial_cache(f"partial_{game_name}")
+            raise ValueError(f"Ошибка при поиске игр: {str(e)}")
 
-    def _sort_games(self, games: List[Dict], game_name: str):
+    def _sort_games(self, games: List[Dict], game_name: str) -> List[Dict]:
         return sorted(
             games,
             key=lambda x: (
@@ -289,7 +368,7 @@ class BoardGameFinder:
             )
         )
 
-    def _format_game_data(self, game):
+    def _format_game_data(self, game) -> Dict:
         return {
             'id': game.id,
             'name': game.name,
@@ -307,7 +386,7 @@ class BoardGameFinder:
             'last_updated': datetime.now().timestamp()
         }
 
-    def _match_score(self, game_name: str, query: str):
+    def _match_score(self, game_name: str, query: str) -> float:
         game_name = game_name.lower()
         query = query.lower()
 
@@ -323,14 +402,7 @@ class BoardGameFinder:
 
         return len(common_words) / max(len(query_words), 1)
 
-    def _update_cache(self, game_name: str, data: Any):
-        self.cache[game_name] = {
-            'data': data,
-            'timestamp': datetime.now().timestamp()
-        }
-        self._save_caches()
-
-    def get_game_info(self, game_data: Union[Dict, List]) -> str:
+    def get_game_info(self, game_data: Union[Dict, List[Dict]]) -> str:
         if isinstance(game_data, list):
             return self._format_multiple_games(game_data)
         return self._format_single_game(game_data)
@@ -380,11 +452,11 @@ class BoardGameFinder:
 finder = BoardGameFinder()
 
 
-def findgame(game_name: str):
+def findgame(game_name: str) -> Union[Dict, List[Dict], None]:
     return finder.find_game(game_name)
 
 
-def game_base_info(game_data: Union[Dict, List]) -> str:
+def game_base_info(game_data: Union[Dict, List[Dict]]) -> str:
     return finder.get_game_info(game_data)
 
 
