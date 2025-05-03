@@ -7,7 +7,8 @@ class Boardgames(SqlAlchemyBase):
     __tablename__ = 'boardgames'
 
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
-    bgg_id = sqlalchemy.Column(sqlalchemy.Integer, unique=True)
+    search_query = sqlalchemy.Column(sqlalchemy.String)
+    bgg_id = sqlalchemy.Column(sqlalchemy.Integer, )
     name = sqlalchemy.Column(sqlalchemy.String)
     year = sqlalchemy.Column(sqlalchemy.Integer)
     description = sqlalchemy.Column(sqlalchemy.String, nullable=True)
@@ -20,9 +21,7 @@ class Boardgames(SqlAlchemyBase):
     mechanics = sqlalchemy.Column(sqlalchemy.String)
     thumbnail = sqlalchemy.Column(sqlalchemy.String)
     image = sqlalchemy.Column(sqlalchemy.String)
-    search_query = sqlalchemy.Column(sqlalchemy.String)
-    timestamp = sqlalchemy.Column(sqlalchemy.Float)
-
-
+    search_time = sqlalchemy.Column(sqlalchemy.DateTime)
+    end_of_search = sqlalchemy.Column(sqlalchemy.Boolean)
     def __repr__(self):
-        return f'<boardgame> {self.job}'
+        return f'<boardgame> {self.name}'
