@@ -1,13 +1,16 @@
-from boardgamegeek import BGGClient, BGGItemNotFoundError
-import logging
-from typing import Union, List, Dict, Any
-from datetime import datetime
-import re
 import html
+import logging
 import os
+import re
 import time
-from data.boardgames import Boardgames
+from datetime import datetime
+from typing import Union, List, Dict, Any
+
+from boardgamegeek import BGGClient, BGGItemNotFoundError
+from googletrans import Translator
+
 from data import db_session
+from data.boardgames import Boardgames
 
 if not os.path.exists('db'):
     os.makedirs('db')
@@ -32,8 +35,20 @@ class BoardGameFinder:
             retry_delay=5,
             timeout=30
         )
+        self.translator = Translator()
         self.skipped_results = 0
         self.search_timeout = 4.5
+
+    def _translate_text(self, text: str, src_lang: str = 'en', dest_lang: str = 'ru') -> str:
+        """Перевод текста с помощью googletrans"""
+        if not text or text.strip() == 'N/A':
+            return text
+        try:
+            translation = self.translator.translate(text, src=src_lang, dest=dest_lang)
+            return translation.text
+        except Exception as e:
+            logger.warning(f"Ошибка перевода текста: {str(e)}")
+            return text
 
     def _format_db_game_to_dict(self, db_game: Boardgames) -> Dict:
         return {
@@ -154,21 +169,29 @@ class BoardGameFinder:
         return [{}]
 
     def _format_game_data(self, game) -> Dict:
-        return {
+        game_data = {
             'id': game.id,
             'name': game.name,
             'year': game.year,
-            'description': self._format_description(getattr(game, 'description', 'Описание отсутствует')),
+            'description': self._format_description(
+                self._translate_text(getattr(game, 'description', 'Описание отсутствует'))
+            ),
             'players': f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A",
             'playtime': f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A",
             'rating': getattr(game, 'rating_average', 0),
             'weight': getattr(game, 'rating_average_weight', 0),
             'users_rated': getattr(game, 'users_rated', 0),
-            'categories': getattr(game, 'categories', []),
-            'mechanics': getattr(game, 'mechanics', []),
             'thumbnail': getattr(game, 'thumbnail', None),
             'image': getattr(game, 'image', None),
         }
+
+        categories = getattr(game, 'categories', [])
+        mechanics = getattr(game, 'mechanics', [])
+
+        game_data['categories'] = [self._translate_text(cat) for cat in categories]
+        game_data['mechanics'] = [self._translate_text(mec) for mec in mechanics]
+
+        return game_data
 
     def _match_score(self, game_name: str, query: str) -> float:
         game_name = game_name.lower()
