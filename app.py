@@ -1,9 +1,11 @@
-import os
-from flask import Flask, request, jsonify
 import logging
+import os
+import random
+
+from flask import Flask, request, jsonify
+
 from boardgames_info import findgame, game_base_info
 from http_work import skill_image_disconnect, image_to_skill_connect
-import random
 
 app = Flask(__name__)
 
@@ -35,11 +37,9 @@ def handle_dialog(req, res):
 
     if req['session']['new']:
         res['response']['text'] = 'Привет! Назови свое имя!'
-
-        sessionStorage[user_id] = {
-            'first_name': None
-        }
+        sessionStorage[user_id] = {'first_name': None}
         return
+
     if sessionStorage[user_id]['first_name'] is None:
         acquaintance(req, res, user_id)
     else:
@@ -47,15 +47,25 @@ def handle_dialog(req, res):
             res['response']['text'] = f'Супер! Информацию о какой настольной игре хочешь узнать?'
             sessionStorage['boardgames_info'] = True
             sessionStorage['dice_pull'] = False
+            sessionStorage['cards_draw'] = False
         elif ('кост' in req['request']['command'] or 'куб' in req['request']['command']) and 'брос' in req['request'][
             'command']:
             res['response']['text'] = f'Сколько кубиков хотите кинуть?'
             sessionStorage['boardgames_info'] = False
             sessionStorage['dice_pull'] = True
+            sessionStorage['cards_draw'] = False
+        elif 'карт' in req['request']['command'] and (
+                'выбери' in req['request']['command'] or 'достань' in req['request']['command']):
+            res['response']['text'] = f'Сколько карт вы хотите выбрать из колоды?'
+            sessionStorage['boardgames_info'] = False
+            sessionStorage['dice_pull'] = False
+            sessionStorage['cards_draw'] = True
         elif sessionStorage['boardgames_info']:
             boardgames_dialog(req, res)
         elif sessionStorage['dice_pull']:
             dice_dialog(req, res)
+        elif sessionStorage['cards_draw']:
+            draw_cards(req, res)
 
 
 def boardgames_dialog(req, res):
@@ -135,6 +145,39 @@ def get_number(req):
     for entity in req['request']['nlu']['entities']:
         if entity['type'] == 'YANDEX.NUMBER':
             return entity.get('value', None)
+
+
+def draw_cards(req, res):
+    CARD_SUITS = {
+        'spades': '♠',
+        'hearts': '♥',
+        'diamonds': '♦',
+        'clubs': '♣'
+    }
+
+    CARD_VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+
+    full_deck = []
+    for suit in CARD_SUITS.values():
+        for value in CARD_VALUES:
+            full_deck.append(f"{value}{suit}")
+
+    num_cards = get_number(req)
+
+    if not num_cards or num_cards <= 0:
+        res['response']['text'] = "Пожалуйста, укажите положительное число карт для выбора."
+        return
+
+    if num_cards > len(full_deck):
+        res['response']['text'] = f"В колоде только {len(full_deck)} карт. Вы не можете выбрать больше."
+        return
+
+    drawn_cards = random.sample(full_deck, num_cards)
+
+    if num_cards == 1:
+        res['response']['text'] = f"Выбранная карта: {drawn_cards[0]}"
+    else:
+        res['response']['text'] = f"Выбранные карты: {' '.join(drawn_cards)}"
 
 
 if __name__ == '__main__':
