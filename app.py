@@ -47,15 +47,25 @@ def handle_dialog(req, res):
             res['response']['text'] = f'Супер! Информацию о какой настольной игре хочешь узнать?'
             sessionStorage['boardgames_info'] = True
             sessionStorage['dice_pull'] = False
+            sessionStorage['draw_cards'] = False
         elif ('кост' in req['request']['command'] or 'куб' in req['request']['command']) and 'брос' in req['request'][
             'command']:
             res['response']['text'] = f'Сколько кубиков хотите кинуть?'
+            sessionStorage['draw_cards'] = False
             sessionStorage['boardgames_info'] = False
             sessionStorage['dice_pull'] = True
+        elif ('вытя' in req['request']['command'] or 'результат' in req['request']['command']) and 'карт' in \
+                req['request']['command']:
+            res['response']['text'] = f'Сколько карт хотите вытянуть?'
+            sessionStorage['draw_cards'] = True
+            sessionStorage['boardgames_info'] = False
+            sessionStorage['dice_pull'] = False
         elif sessionStorage['boardgames_info']:
             boardgames_dialog(req, res)
         elif sessionStorage['dice_pull']:
             dice_dialog(req, res)
+        elif sessionStorage['draw_cards']:
+            draw_cards(req, res)
 
 
 def boardgames_dialog(req, res):
@@ -88,6 +98,10 @@ def acquaintance(req, res, user_id):
         res['response']['buttons'] = [
             {
                 'title': 'Информацию о настольной игре',
+                'hide': True
+            },
+            {
+                'title': 'Значение вытянутых карт',
                 'hide': True
             },
             {

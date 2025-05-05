@@ -1,3 +1,8 @@
+from boardgamegeek import BGGClient, BGGItemNotFoundError
+import logging
+from typing import Union, List, Dict, Any
+from datetime import datetime
+import re
 import html
 import logging
 import os
@@ -6,9 +11,6 @@ import time
 from datetime import datetime
 from typing import Union, List, Dict, Any, Optional
 from random import choice
-
-from boardgamegeek import BGGClient, BGGItemNotFoundError
-from googletrans import Translator
 
 from data import db_session
 from data.boardgames import Boardgames
@@ -36,19 +38,8 @@ class BoardGameFinder:
             retry_delay=5,
             timeout=30
         )
-        self.translator = Translator()
         self.skipped_results = 0
         self.search_timeout = 4.5
-
-    def _translate_text(self, text: str, src_lang: str = 'en', dest_lang: str = 'ru') -> str:
-        if not text or text.strip() == 'N/A':
-            return text
-        try:
-            translation = self.translator.translate(text, src=src_lang, dest=dest_lang)
-            return translation.text
-        except Exception as e:
-            logger.warning(f"Ошибка перевода текста: {str(e)}")
-            return text
 
     def _format_db_game_to_dict(self, db_game: Boardgames) -> Dict:
         return {
@@ -118,8 +109,9 @@ class BoardGameFinder:
             raise ValueError("Название игры не может быть пустым")
 
         db_search_results = db_sess.query(Boardgames).filter(Boardgames.search_query == game_name).all()
+        logger.info(f'db_search_results{db_search_results}')
         if db_search_results:
-            if len(db_search_results) == 1 and db_search_results[0].end_of_search:
+            if len(db_search_results) == 1 and db_search_results[0].end_of_search == True:
                 return self._format_db_game_to_dict(db_search_results[0])
             if len(db_search_results) > 1 and any(i.end_of_search for i in db_search_results):
                 games = [self._format_db_game_to_dict(i) for i in db_search_results]
@@ -144,16 +136,15 @@ class BoardGameFinder:
         search_results = self.bgg.search(game_name)
         if not search_results:
             raise ValueError(f"Игра '{game_name}' не найдена")
-
         elements_counter = len(db_search_results)
         for item in search_results[len(db_search_results) + self.skipped_results:]:
             try:
-                if time.time() - start_time > self.search_timeout - 0.5:
+                if time.time() - start_time > self.search_timeout - 1.7:
                     break
                 game = self.bgg.game(game_id=item.id)
                 if game.users_commented > 0:
                     formatted_game = self._format_game_data(game)
-                    if elements_counter > 15:
+                    if elements_counter > 15 or elements_counter == len(search_results) - 1:
                         self._save_to_db(formatted_game, game_name, True)
                     else:
                         self._save_to_db(formatted_game, game_name, False)
@@ -164,29 +155,21 @@ class BoardGameFinder:
         return [{}]
 
     def _format_game_data(self, game) -> Dict:
-        game_data = {
+        return {
             'id': game.id,
             'name': game.name,
             'year': game.year,
-            'description': self._format_description(
-                self._translate_text(getattr(game, 'description', 'Описание отсутствует'))
-            ),
+            'description': self._format_description(getattr(game, 'description', 'Описание отсутствует')),
             'players': f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A",
             'playtime': f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A",
             'rating': round(getattr(game, 'rating_average', 0), 2),
             'weight': round(getattr(game, 'rating_average_weight', 0), 2),
             'users_rated': getattr(game, 'users_rated', 0),
+            'categories': getattr(game, 'categories', []),
+            'mechanics': getattr(game, 'mechanics', []),
             'thumbnail': getattr(game, 'thumbnail', None),
             'image': getattr(game, 'image', None),
         }
-
-        categories = getattr(game, 'categories', [])
-        mechanics = getattr(game, 'mechanics', [])
-
-        game_data['categories'] = [self._translate_text(cat) for cat in categories]
-        game_data['mechanics'] = [self._translate_text(mec) for mec in mechanics]
-
-        return game_data
 
     def _match_score(self, game_name: str, query: str) -> float:
         game_name = game_name.lower()
@@ -197,7 +180,9 @@ class BoardGameFinder:
             return 0.9
         query_words = set(query.split())
         game_words = set(game_name.split())
-        return len(query_words & game_words) / max(len(query_words), 1)
+        common_words = query_words & game_words
+
+        return len(common_words) / max(len(query_words), 1)
 
     def get_game_info(self, game_data: Union[Dict, List[Dict]]) -> str:
         if isinstance(game_data, list):
