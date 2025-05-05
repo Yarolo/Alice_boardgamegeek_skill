@@ -194,7 +194,7 @@ class BoardGameFinder:
             existing_count = db_sess.query(Boardgames).filter(
                 Boardgames.search_query == game_name
             ).count()
-            processed = 0
+            processed = existing_count
             for item in search_results[existing_count + self.skipped_results:]:
                 if time.time() - start_time > self.search_timeout - 1.7:
                     break
@@ -472,6 +472,21 @@ def get_strategy_games(min_weight: float = 3.0,
 
 
 if __name__ == '__main__':
+
+    print("=== Точный поиск ===")
+    monopoly = findgame("Monopoly")
+    print(game_base_info(monopoly))
+
+    print("\n=== Частичный поиск ===")
+    for i in range(23):
+        card_games = findgame("Car")
+        print(game_base_info(card_games))
+
+    print("\n=== Тест кэширования ===")
+    start_time = datetime.now()
+    cached_result = findgame("Monopoly")
+    print(f"Время выполнения (с кэшем): {datetime.now() - start_time}")
+
     print("=== Тестирование функций ===")
     # Тестирование перевода
     print("\nТестирование перевода:")
