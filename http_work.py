@@ -24,3 +24,7 @@ def skill_image_disconnect(image_id, author_name):
     headers = {'Authorization': SKILLS_AUTHORS_ID[author_name]}
     requests.delete(f'https://dialogs.yandex.net/api/v1/skills/{SKILLS_ID[author_name]}/images/{image_id}',
                     headers=headers)
+
+
+def request_repeat(request):
+    requests.post('https://mighty-eager-jay.glitch.me/post', json=request)
