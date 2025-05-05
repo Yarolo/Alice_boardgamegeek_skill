@@ -342,6 +342,7 @@ class BoardGameFinder:
 finder = BoardGameFinder()
 
 
+
 def findgame(game_name: str) -> Union[Dict, List[Dict], None]:
     return finder.find_game(game_name)
 
