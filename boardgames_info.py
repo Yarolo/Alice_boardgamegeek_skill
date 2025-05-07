@@ -7,8 +7,7 @@ import html
 import os
 import time
 from random import choice
-from googletrans import Translator
-from deep_translator import GoogleTranslator  # запасной вариант
+from deep_translator import GoogleTranslator
 
 from data import db_session
 from data.boardgames import Boardgames
@@ -42,19 +41,12 @@ class GameTranslator:
         if text in self.cache:
             return self.cache[text]
         try:
-            # Сначала пробуем googletrans
-            translator = Translator()
-            result = translator.translate(text, dest='ru').text
+            result = self.translator.translate(text)
+            self.cache[text] = result
+            return result
         except Exception as e:
-            logger.warning(f"Googletrans не сработал, используем запасной вариант: {str(e)}")
-            try:
-                # Запасной вариант - deep_translator
-                result = self.translator.translate(text)
-            except Exception as e:
-                logger.error(f"Ошибка перевода текста '{text}': {str(e)}")
-                result = text
-        self.cache[text] = result
-        return result
+            logger.error(f"Ошибка перевода текста '{text}': {str(e)}")
+            return text
 
 
 class BoardGameFinder:
@@ -472,7 +464,6 @@ def get_strategy_games(min_weight: float = 3.0,
 
 
 if __name__ == '__main__':
-
     print("=== Точный поиск ===")
     monopoly = findgame("Monopoly")
     print(game_base_info(monopoly))
@@ -486,22 +477,3 @@ if __name__ == '__main__':
     start_time = datetime.now()
     cached_result = findgame("Monopoly")
     print(f"Время выполнения (с кэшем): {datetime.now() - start_time}")
-
-    print("=== Тестирование функций ===")
-    # Тестирование перевода
-    print("\nТестирование перевода:")
-    test_text = "Strategy game for families"
-    print(f"Оригинал: {test_text}")
-    print(f"Перевод: {finder.translator.translate(test_text)}")
-    # Тестирование поиска игры
-    print("\nТестирование поиска игры:")
-    test_game = "Catan"
-    result = findgame(test_game)
-    print(game_base_info(result))
-    # Тестирование рекомендаций
-    print("\nТестирование рекомендаций:")
-    recs = get_recommendations(liked_categories=['Strategy'])
-    print(game_base_info(recs))
-    # Тестирование случайной игры
-    print("\nТестирование случайной игры:")
-    print(game_base_info(random_game(min_rating=7)))
