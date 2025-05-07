@@ -54,6 +54,7 @@ def skill_image_disconnect(image_id, author_name):
         logger.error(f"Error deleting image: {str(e)}")
 
 
+
 def request_repeat(request):
     try:
         session.post(

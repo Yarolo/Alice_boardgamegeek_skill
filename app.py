@@ -64,7 +64,6 @@ def handle_dialog(req, res):
         res['response']['text'] = 'Привет! Назови свое имя!'
         sessionStorage[user_id] = {'first_name': None}
         return
-
     if sessionStorage[user_id]['first_name'] is None:
         acquaintance(req, res, user_id)
     else:
