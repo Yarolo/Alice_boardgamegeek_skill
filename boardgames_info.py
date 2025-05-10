@@ -6,9 +6,9 @@ import re
 import html
 import os
 import time
+import random
 from random import choice
 from deep_translator import GoogleTranslator
-
 from data import db_session
 from data.boardgames import Boardgames
 
@@ -27,6 +27,25 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Фразы для ожидания
+WAITING_PHRASES = [
+    "Жду-не дождусь...",
+    "Сколько ж ещё?",
+    "Время бежит, ты идёшь...",
+    "Как в сказке — не было ни конца, ни края у этой лужи, её орёл не перелетел...",
+    "Может, чайку попьём с ватрушками?",
+    "Жду как премьеры нового сезона баскетбола Куроко!",
+    "Это надолго...",
+    "Терпение, только терпение...",
+    "Оторвать бы этим разрабам руки, глядишь с дивана встанут",
+    "Так и состариться можно!",
+    "Может, три раза щёлкнем?",
+    "Сидим, ждём у моря погоды.",
+    "Пока ждём — жизнь проходит, ба, так уже прошла, ничего потомки дождутся!",
+    "Считаю до пяти!!!",
+    "Как время летит быстро, даже Иван успел к проекту приступить, всего каких-то пару сотен лет прошло."
+]
 
 
 # Настройка перевода
@@ -275,7 +294,7 @@ class BoardGameFinder:
     def _format_multiple_games(self, games: List[Dict[str, Any]]) -> str:
         """Форматирует несколько игр в список для сравнения"""
         if not games or not games[0]:
-            return "Поиск в процессе"
+            return random.choice(WAITING_PHRASES)  # Используем случайную фразу ожидания
         games_list = []
         for i, game in enumerate(games[:5], 1):
             weight = game.get('weight', 0)
@@ -287,7 +306,25 @@ class BoardGameFinder:
         return ("Найдено несколько игр. Уточните запрос:\n" + '\n'.join(games_list) +
                 f"\n\nПоказаны топ-5 из найденных игр.")
 
-    # 1. Получение случайной игры с фильтрами
+    def get_random_game_names(self, count: int = 5) -> List[str]:
+        """Возвращает список случайных популярных названий игр из кэша"""
+        db_sess = db_session.create_session()
+        try:
+            games = db_sess.query(Boardgames.name).filter(
+                Boardgames.users_rated >= self.min_users_rated
+            ).order_by(Boardgames.rating.desc()).limit(100).all()
+
+            if not games:
+                return []
+
+            sample_size = min(count, len(games))
+            return [name for (name,) in random.sample(games, sample_size)]
+        except Exception as e:
+            logger.error(f"Ошибка получения случайных названий игр: {str(e)}")
+            return []
+        finally:
+            db_sess.close()
+
     def get_random_game(self,
                         min_rating: float = 0,
                         min_players: Optional[int] = None,
@@ -311,7 +348,6 @@ class BoardGameFinder:
         finally:
             db_sess.close()
 
-    # 2. Получение рекомендаций на основе предпочтений
     def get_recommendations(self,
                             liked_categories: List[str] = [],
                             disliked_categories: List[str] = [],
@@ -324,7 +360,6 @@ class BoardGameFinder:
                 Boardgames.rating >= min_rating,
                 Boardgames.users_rated >= self.min_users_rated
             )
-            # Переводим категории для сравнения
             liked_translated = [self.translator.translate(cat) for cat in liked_categories]
             disliked_translated = [self.translator.translate(cat) for cat in disliked_categories]
             for category in liked_translated:
@@ -339,7 +374,6 @@ class BoardGameFinder:
         finally:
             db_sess.close()
 
-    # 3. Поиск вечериночных игр (быстрые и простые игры для компаний)
     def get_party_games(self,
                         min_players: int = 4,
                         max_playtime: int = 60,
@@ -360,7 +394,6 @@ class BoardGameFinder:
         finally:
             db_sess.close()
 
-    # 4. Поиск семейных игр (для детей и взрослых)
     def get_family_games(self,
                          max_weight: float = 2.5,
                          min_age: int = 6,
@@ -376,7 +409,6 @@ class BoardGameFinder:
                 Boardgames.weight <= max_weight,
                 Boardgames.users_rated >= self.min_users_rated
             )
-            # Создаем OR условие для семейных категорий
             from sqlalchemy import or_
             query = query.filter(or_(
                 *[Boardgames.categories.like(f'%{cat}%') for cat in family_categories]
@@ -389,7 +421,6 @@ class BoardGameFinder:
         finally:
             db_sess.close()
 
-    # 5. Поиск стратегических игр (сложные и долгие игры)
     def get_strategy_games(self,
                            min_weight: float = 3.0,
                            min_playtime: int = 90,
@@ -414,6 +445,16 @@ class BoardGameFinder:
 
 # Инициализация экземпляра поисковика
 finder = BoardGameFinder()
+
+
+def close_session():
+    """Корректное завершение работы с БД"""
+    db_sess = db_session.create_session()
+    try:
+        db_sess.invalidate()
+        logger.info("Database connection closed")
+    finally:
+        db_sess.close()
 
 
 # Публичные API функции
@@ -463,18 +504,25 @@ def get_strategy_games(min_weight: float = 3.0,
     return finder.get_strategy_games(min_weight, min_playtime, limit)
 
 
+def get_random_game_names(count: int = 5) -> List[str]:
+    """Публичный интерфейс для получения случайных названий игр"""
+    return finder.get_random_game_names(count)
+
+
+def get_waiting_phrase() -> str:
+    """Возвращает случайную фразу ожидания"""
+    return random.choice(WAITING_PHRASES)
+
+
 if __name__ == '__main__':
-    print("=== Точный поиск ===")
-    monopoly = findgame("Monopoly")
-    print(game_base_info(monopoly))
-    print(monopoly['image'])
+    # Тестирование новых функций
+    print("\n=== Тест фраз ожидания ===")
+    for _ in range(3):
+        print(get_waiting_phrase())
 
-    print("\n=== Частичный поиск ===")
-    for i in range(23):
-        card_games = findgame("tmn")
-        print(game_base_info(card_games))
+    print("\n=== Тест случайных названий игр ===")
+    print(get_random_game_names(5))
 
-    print("\n=== Тест кэширования ===")
-    start_time = datetime.now()
-    cached_result = findgame("Monopoly")
-    print(f"Время выполнения (с кэшем): {datetime.now() - start_time}")
+    print("\n=== Тест завершения сессии ===")
+    close_session()
+    print("Сессия завершена корректно")
