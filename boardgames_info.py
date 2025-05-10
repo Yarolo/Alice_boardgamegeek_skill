@@ -28,25 +28,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Фразы для ожидания
-WAITING_PHRASES = [
-    "Жду-не дождусь...",
-    "Сколько ж ещё?",
-    "Время бежит, ты идёшь...",
-    "Как в сказке — не было ни конца, ни края у этой лужи, её орёл не перелетел...",
-    "Может, чайку попьём с ватрушками?",
-    "Жду как премьеры нового сезона баскетбола Куроко!",
-    "Это надолго...",
-    "Терпение, только терпение...",
-    "Оторвать бы этим разрабам руки, глядишь с дивана встанут",
-    "Так и состариться можно!",
-    "Может, три раза щёлкнем?",
-    "Сидим, ждём у моря погоды.",
-    "Пока ждём — жизнь проходит, ба, так уже прошла, ничего потомки дождутся!",
-    "Считаю до пяти!!!",
-    "Как время летит быстро, даже Иван успел к проекту приступить, всего каких-то пару сотен лет прошло."
-]
-
 
 # Настройка перевода
 class GameTranslator:
@@ -294,7 +275,7 @@ class BoardGameFinder:
     def _format_multiple_games(self, games: List[Dict[str, Any]]) -> str:
         """Форматирует несколько игр в список для сравнения"""
         if not games or not games[0]:
-            return random.choice(WAITING_PHRASES)  # Используем случайную фразу ожидания
+            return "Поиск в процессе"
         games_list = []
         for i, game in enumerate(games[:5], 1):
             weight = game.get('weight', 0)
@@ -504,14 +485,9 @@ def get_strategy_games(min_weight: float = 3.0,
     return finder.get_strategy_games(min_weight, min_playtime, limit)
 
 
-def get_random_game_names(count: int = 5) -> List[str]:
+def get_random_game_names(count: int = 3) -> List[str]:
     """Публичный интерфейс для получения случайных названий игр"""
     return finder.get_random_game_names(count)
-
-
-def get_waiting_phrase() -> str:
-    """Возвращает случайную фразу ожидания"""
-    return random.choice(WAITING_PHRASES)
 
 
 if __name__ == '__main__':
