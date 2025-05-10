@@ -14,8 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 sessionStorage = {}
-GAME_CACHE = {}
-MAX_CACHE_SIZE = 100
+
 DICE = {1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅'}
 
 QUICK_RESPONSES = {
@@ -46,7 +45,7 @@ def main():
 
 def handle_dialog(req, res):
     user_id = req['session']['user_id']
-    command = req['request']['command'].lower()
+    command = req['request']['command']
 
     if sessionStorage.get('image_id'):
         skill_image_disconnect(sessionStorage['image_id'], 'Волобуев Ярослав')
@@ -88,53 +87,26 @@ def handle_dialog(req, res):
             dice_dialog(req, res)
         elif sessionStorage.get('draw_cards'):
             draw_cards(req, res)
+        else:
+            res['response']['text'] = 'Не поняла ваш запрос.'
 
 
 def boardgames_dialog(req, res):
-    query = req['request']['original_utterance'].lower().strip()
-
-    if query in GAME_CACHE:
-        cached = GAME_CACHE[query]
-        res['response']['text'] = cached['text']
-        if 'image' in cached:
-            im_id = image_to_skill_connect(cached['image'], 'Волобуев Ярослав')
-            if im_id:
-                res['response']['card'] = cached['card']
-                sessionStorage['image_id'] = im_id
-        return
-
     try:
-        boardgames = findgame(query)
-        info = game_base_info(boardgames)
-        res['response']['text'] = info
-
-        if not isinstance(boardgames, list):
-            if len(GAME_CACHE) >= MAX_CACHE_SIZE:
-                GAME_CACHE.pop(next(iter(GAME_CACHE)))
-
-            GAME_CACHE[query] = {
-                'text': info,
-                'image': boardgames['image'],
-                'card': {
-                    "type": "BigImage",
-                    "image_id": "",
-                    "title": boardgames['name'],
-                    "description": info,
-                }
-            }
-
-            im_id = image_to_skill_connect(boardgames['image'], 'Волобуев Ярослав')
-            if im_id:
-                res['response']['card'] = {
-                    "type": "BigImage",
-                    "image_id": im_id,
-                    "title": boardgames['name'],
-                    "description": info,
-                }
-                sessionStorage['image_id'] = im_id
-    except Exception as e:
-        logger.error(f"Game search error: {str(e)}")
-        res['response']['text'] = 'Извините, не смогла найти информацию об этой игре'
+        boardgames = findgame(req['request']['original_utterance'])
+    except ValueError:
+        res['response']['text'] = 'Извините, не смогла найти подходящие результаты.'
+        return
+    res['response']['text'] = game_base_info(boardgames)
+    if not isinstance(boardgames, list):
+        im_id = image_to_skill_connect(boardgames['image'], 'Волобуев Ярослав')
+        res['response']['card'] = {
+            "type": "BigImage",
+            "image_id": str(im_id),
+            "title": boardgames['name'],
+            "description": game_base_info(boardgames),
+        }
+        sessionStorage['image_id'] = im_id
 
 
 def acquaintance(req, res, user_id):
@@ -152,13 +124,30 @@ def acquaintance(req, res, user_id):
 
 
 def dice_dialog(req, res):
-    num_dice = get_number(req)
-    if not num_dice or num_dice < 1:
-        res['response']['text'] = 'Пожалуйста, укажите число от 1 до 10'
+    number_dices = get_number(req)
+    result = []
+    if not number_dices:
+        res['response']['text'] = 'Не расслышала ответ. Введите число брошенных кубиков.'
         return
-    num_dice = min(num_dice, 10)
-    result = sorted([DICE[random.randint(1, 6)] for _ in range(num_dice)])
-    res['response']['text'] = f'Результат: {"".join(result)}'
+    for i in range(number_dices):
+        result.append(DICE[random.choice(range(1, 7))])
+    result = sorted(result)
+    answer = f'Ваш результат:\n{"".join(result)}'
+    if number_dices == 5:
+        combos = []
+        for i in DICE.values():
+            combos.append(result.count(i))
+        if 5 in combos:
+            answer += '\n Комбинация из кубиков: Покер.'
+        elif 3 in combos and 2 in combos:
+            answer += '\n Комбинация из кубиков: Фулхаус.'
+        elif result == '⚀⚁⚂⚃' or result == '⚁⚂⚃⚄' or result == '⚂⚃⚄⚅':
+            answer += '\n Комбинация из кубиков: Короткий стрит.'
+        elif result == '⚁⚂⚃⚄⚅' or result == '⚀⚁⚂⚃⚄':
+            answer += '\n Комбинация из кубиков: Длинный стрит.'
+        elif 4 in combos:
+            answer += '\n Комбинация из кубиков: Каре.'
+    res['response']['text'] = answer
 
 
 def draw_cards(req, res):
@@ -173,7 +162,7 @@ def draw_cards(req, res):
 
     num_cards = min(num_cards, 10)
     drawn_cards = random.sample(full_deck, num_cards)
-    res['response']['text'] = f"Вытянутые карты: {' '.join(drawn_cards)}"
+    res['response']['text'] = f"Вытянутые карты:\n {' '.join(drawn_cards)}"
 
 
 def get_first_name(req):

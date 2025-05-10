@@ -64,3 +64,5 @@ def request_repeat(request):
         )
     except Exception as e:
         logger.error(f"Error repeating request: {str(e)}")
+
+print(image_to_skill_connect('https://cf.geekdo-images.com/9nGoBZ0MRbi6rdH47sj2Qg__original/img/bA8irydTCNlE38QSzM9EhcUIuNU=/0x0/filters:format(jpeg)/pic5786795.jpg', 'Волобуев Ярослав'))

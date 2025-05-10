@@ -52,7 +52,7 @@ class GameTranslator:
 class BoardGameFinder:
     def __init__(self):
         self.bgg = BGGClient(
-            requests_per_minute=30,
+            requests_per_minute=1000,
             retries=3,
             retry_delay=5,
             timeout=30
@@ -66,7 +66,7 @@ class BoardGameFinder:
         """Конвертирует объект игры из БД в словарь с переведенными полями"""
         return {
             'id': db_game.bgg_id,
-            'name': self.translator.translate(db_game.name),
+            'name': db_game.name,
             'year': db_game.year,
             'description': self.translator.translate(db_game.description),
             'players': db_game.players,
@@ -134,10 +134,10 @@ class BoardGameFinder:
         start_time = time.time()
         game_name = game_name.strip().lower()
         if not game_name:
-            raise ValueError(self.translator.translate("Название игры не может быть пустым"))
+            raise ValueError("Название игры не может быть пустым")
         # Сначала проверяем кэш
         if use_cache:
-            cached_result = self._check_cache(game_name)
+            cached_result = self._check_cache(game_name, start_time)
             if cached_result:
                 return cached_result
         # Пробуем точное совпадение
@@ -152,26 +152,26 @@ class BoardGameFinder:
         # Запасной вариант - поиск
         return self._search_fallback(game_name, start_time)
 
-    def _check_cache(self, game_name: str) -> Union[Dict, List[Dict], None]:
+    def _check_cache(self, game_name: str, start_time) -> Union[Dict, List[Dict], None]:
         """Проверяет кэш БД на наличие результатов"""
         db_sess = db_session.create_session()
         try:
             db_search_results = db_sess.query(Boardgames).filter(
                 Boardgames.search_query == game_name
             ).order_by(Boardgames.users_rated.desc()).all()
+            logging.info(f'db_search_results on "{game_name}": {db_search_results}')
+            if time.time() - start_time > self.search_timeout - 2.0:
+                return [{}]
             if db_search_results:
                 if len(db_search_results) == 1 and db_search_results[0].end_of_search:
                     return self._format_db_game_to_dict(db_search_results[0])
                 if len(db_search_results) > 1 and any(i.end_of_search for i in db_search_results):
                     games = [self._format_db_game_to_dict(i) for i in db_search_results]
-                    return sorted(
-                        games,
-                        key=lambda x: (
-                            -x.get('users_rated', 0),
-                            -self._match_score(x['name'], game_name),
-                            -x.get('rating', 0)
-                        )
-                    )
+                    result = []
+                    for i in games:
+                        if i not in result:
+                            result.append(i)
+                    return result
         finally:
             db_sess.close()
         return None
@@ -180,7 +180,9 @@ class BoardGameFinder:
         """Альтернативный поиск, когда точное совпадение не найдено"""
         search_results = self.bgg.search(game_name)
         if not search_results:
-            raise ValueError(self.translator.translate(f"Игра '{game_name}' не найдена"))
+            raise ValueError(f"Игра '{game_name}' не найдена")
+        if len(search_results) < 10:
+            raise ValueError(f"Игра '{game_name}' не найдена")
         db_sess = db_session.create_session()
         try:
             existing_count = db_sess.query(Boardgames).filter(
@@ -188,27 +190,27 @@ class BoardGameFinder:
             ).count()
             processed = existing_count
             for item in search_results[existing_count + self.skipped_results:]:
-                if time.time() - start_time > self.search_timeout - 1.7:
+                if time.time() - start_time > self.search_timeout - 2.5:
                     break
                 try:
                     game = self.bgg.game(game_id=item.id)
                     if game.users_rated >= self.min_users_rated:
                         formatted_game = self._format_game_data(game)
-                        is_last = processed == len(search_results) - 1 or processed >= 15
+                        is_last = processed == len(search_results) - 2 or processed >= 15
                         self._save_to_db(formatted_game, game_name, is_last)
                         processed += 1
                 except Exception as e:
                     logger.warning(f"Ошибка обработки игры {item.id}: {str(e)}")
                     self.skipped_results += 1
             # Возвращаем то, что есть в кэше
-            return self._check_cache(game_name) or [{}]
+            return [{}]
         finally:
             db_sess.close()
 
     def _format_game_data(self, game) -> Dict:
         """Форматирует сырые данные игры из BGG API"""
         players = f"{game.min_players}-{game.max_players}" if hasattr(game, 'min_players') else "N/A"
-        playtime = f"{game.playing_time} {self.translator.translate('мин')}" if hasattr(game, 'playing_time') else "N/A"
+        playtime = f"{game.playing_time} мин" if hasattr(game, 'playing_time') else "N/A"
         return {
             'id': game.id,
             'name': game.name,
@@ -257,16 +259,15 @@ class BoardGameFinder:
             weight_str = f"{weight:.1f} ({self.translator.translate('Тяжелая')})"
         info = [
             f"🎲 {game['name']} ({game['year']})",
-            f"👥 {self.translator.translate('Игроки')}: {game['players']}",
-            f"⏱ {self.translator.translate('Время игры')}: {game['playtime']}",
-            f"⭐ {self.translator.translate('Рейтинг')}: {game['rating']:.2f} "
-            f"({self.translator.translate('на основе')} {game.get('users_rated', 0)} "
-            f"{self.translator.translate('оценок')})",
-            f"🧠 {self.translator.translate('Сложность')}: {weight_str}",
-            f"📝 {self.translator.translate('Описание')}: {game['description']}",
-            f"🏷 {self.translator.translate('Категории')}: {', '.join(game['categories'][:5])}"
+            f"👥 Игроков: {game['players']}",
+            f"⏱ Время игры: {game['playtime']}",
+            f"⭐ Рейтинг: {game['rating']:.2f} "
+            f"(на основе {game.get('users_rated', 0)} оценок)",
+            f"🧠 Сложность: {weight_str}",
+            f"📝 Описание: {self.translator.translate(game['description'])}",
+            f"🏷 Категории: {', '.join(game['categories'][:5])}"
             if game.get('categories') else "",
-            f"⚙ {self.translator.translate('Механики')}: {', '.join(game['mechanics'][:5])}"
+            f"⚙ Механики: {', '.join(game['mechanics'][:5])}"
             if game.get('mechanics') else ""
         ]
         return '\n'.join(filter(None, info))
@@ -274,7 +275,7 @@ class BoardGameFinder:
     def _format_multiple_games(self, games: List[Dict[str, Any]]) -> str:
         """Форматирует несколько игр в список для сравнения"""
         if not games or not games[0]:
-            return self.translator.translate("Поиск в процессе")
+            return "Поиск в процессе"
         games_list = []
         for i, game in enumerate(games[:5], 1):
             weight = game.get('weight', 0)
@@ -283,9 +284,8 @@ class BoardGameFinder:
                 f"{i}. {game['name']} ({game['year']}) - ⭐ {game['rating']:.1f} "
                 f"(🏋️ {weight_str}, 👥 {game['players']}, ⏱ {game['playtime']})"
             )
-        return (self.translator.translate("Найдено несколько игр. Уточните запрос:\n\n") +
-                '\n'.join(games_list) +
-                f"\n\n{self.translator.translate('Показаны топ-5 из найденных игр.')}")
+        return ("Найдено несколько игр. Уточните запрос:\n" + '\n'.join(games_list) +
+                f"\n\nПоказаны топ-5 из найденных игр.")
 
     # 1. Получение случайной игры с фильтрами
     def get_random_game(self,
@@ -467,10 +467,11 @@ if __name__ == '__main__':
     print("=== Точный поиск ===")
     monopoly = findgame("Monopoly")
     print(game_base_info(monopoly))
+    print(monopoly['image'])
 
     print("\n=== Частичный поиск ===")
     for i in range(23):
-        card_games = findgame("Car")
+        card_games = findgame("tmn")
         print(game_base_info(card_games))
 
     print("\n=== Тест кэширования ===")

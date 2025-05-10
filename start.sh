@@ -21,5 +21,8 @@ fi
 # Install the requirements
 $VIRTUALENV/bin/pip install -r requirements.txt
 
+$VIRTUALENV/bin/python3 celery worker -A app.celery --loglevel=debug
+
 # Run your glorious application
 $VIRTUALENV/bin/python3 app.py
+
