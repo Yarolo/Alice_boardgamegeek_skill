@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('../boardgames.log'),
+        logging.FileHandler('../documents/logs/boardgames.log'),
         logging.StreamHandler()
     ]
 )
@@ -492,9 +492,6 @@ def get_random_game_names(count: int = 3) -> List[str]:
 
 if __name__ == '__main__':
     # Тестирование новых функций
-    print("\n=== Тест фраз ожидания ===")
-    for _ in range(3):
-        print(get_waiting_phrase())
 
     print("\n=== Тест случайных названий игр ===")
     print(get_random_game_names(5))
