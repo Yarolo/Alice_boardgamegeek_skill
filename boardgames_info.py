@@ -13,16 +13,16 @@ from data import db_session
 from data.boardgames import Boardgames
 
 # Настройка базы данных
-if not os.path.exists('../db'):
-    os.makedirs('../db')
-db_session.global_init("../db/cache.db")
+if not os.path.exists('db'):
+    os.makedirs('db')
+db_session.global_init("db/cache.db")
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('../documents/logs/boardgames.log'),
+        logging.FileHandler('documents/logs/boardgames.log'),
         logging.StreamHandler()
     ]
 )

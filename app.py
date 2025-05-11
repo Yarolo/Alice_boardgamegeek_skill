@@ -1,8 +1,8 @@
 from waitress import serve
 from flask import Flask, request, jsonify
 import logging
-from functions.boardgames_info import findgame, game_base_info, get_random_game_names
-from functions.http_work import skill_image_disconnect, image_to_skill_connect
+from boardgames_info import findgame, game_base_info, get_random_game_names
+from http_work import skill_image_disconnect, image_to_skill_connect
 import random
 import time
 
