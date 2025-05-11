@@ -13,16 +13,16 @@ from data import db_session
 from data.boardgames import Boardgames
 
 # Настройка базы данных
-if not os.path.exists('db'):
-    os.makedirs('db')
-db_session.global_init("db/cache.db")
+if not os.path.exists('../db'):
+    os.makedirs('../db')
+db_session.global_init("../db/cache.db")
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('boardgames.log'),
+        logging.FileHandler('../boardgames.log'),
         logging.StreamHandler()
     ]
 )
@@ -282,7 +282,7 @@ class BoardGameFinder:
             weight_str = f"{weight:.1f}" if weight > 0 else "?"
             games_list.append(
                 f"{i}. {game['name']} ({game['year']}) - ⭐ {game['rating']:.1f} "
-                f"(🏋️ {weight_str}, 👥 {game['players']}, ⏱ {game['playtime']})"
+                f"(🧠 {weight_str}, 👥 {game['players']}, ⏱ {game['playtime']})"
             )
         return ("Найдено несколько игр. Уточните запрос:\n" + '\n'.join(games_list) +
                 f"\n\nПоказаны топ-5 из найденных игр.")
