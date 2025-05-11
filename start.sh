@@ -19,9 +19,7 @@ if [ ! -f $VIRTUALENV/bin/pip ]; then
 fi
 
 # Install the requirements
-$VIRTUALENV/bin/pip install -r documents/dependencies/requirements.txt
-
-$VIRTUALENV/bin/python3 celery worker -A app.celery --loglevel=debug
+$VIRTUALENV/bin/pip install -r requirements.txt
 
 # Run your glorious application
 $VIRTUALENV/bin/python3 app.py
