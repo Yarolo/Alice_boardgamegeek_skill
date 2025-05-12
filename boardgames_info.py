@@ -50,14 +50,16 @@ class GameTranslator:
 
 
 class BoardGameFinder:
+    """Основной класс для поиска и работы с данными о настольных играх из BoardGameGeek"""
     def __init__(self):
+        # Инициализация клиента BGG с настройками запросов
         self.bgg = BGGClient(
             requests_per_minute=1000,
             retries=3,
             retry_delay=5,
             timeout=30
         )
-        self.translator = GameTranslator()
+        self.translator = GameTranslator()# Переводчик текста
         self.skipped_results = 0
         self.search_timeout = 4.5
         self.min_users_rated = 50  # Минимальное количество оценок для популярной игры
@@ -455,7 +457,8 @@ def random_game(min_rating: float = 0,
     """Публичный интерфейс для получения случайной игры"""
     return finder.get_random_game(min_rating, min_players, max_players)
 
-
+# Методы получения рекомендаций:
+    # По предпочтениям
 def get_recommendations(liked_categories: List[str] = [],
                         disliked_categories: List[str] = [],
                         min_rating: float = 7.0,
@@ -463,21 +466,21 @@ def get_recommendations(liked_categories: List[str] = [],
     """Публичный интерфейс для получения рекомендаций"""
     return finder.get_recommendations(liked_categories, disliked_categories, min_rating, limit)
 
-
+    # Для вечеринок
 def get_party_games(min_players: int = 4,
                     max_playtime: int = 60,
                     limit: int = 5) -> List[Dict]:
     """Публичный интерфейс для получения вечериночных игр"""
     return finder.get_party_games(min_players, max_playtime, limit)
 
-
+    # Для семьи
 def get_family_games(max_weight: float = 2.5,
                      min_age: int = 6,
                      limit: int = 5) -> List[Dict]:
     """Публичный интерфейс для получения семейных игр"""
     return finder.get_family_games(max_weight, min_age, limit)
 
-
+    # Стратегические игры
 def get_strategy_games(min_weight: float = 3.0,
                        min_playtime: int = 90,
                        limit: int = 5) -> List[Dict]:
