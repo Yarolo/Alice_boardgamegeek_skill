@@ -2,7 +2,8 @@
 from waitress import serve  # Простой WSGI-сервер для запуска Flask
 from flask import Flask, request, jsonify  # Веб-фреймворк и инструменты для работы с запросами
 import logging  # Логирование работы приложения
-from boardgames_info import findgame, game_base_info, get_random_game_names  # Модуль работы с играми
+from boardgames_info import findgame, game_base_info, get_random_game_names, get_family_games, get_strategy_games, \
+    get_party_games, random_game  # Модуль работы с играми
 from http_work import skill_image_disconnect, image_to_skill_connect  # Модуль работы с изображениями
 import random  # Генерация случайных чисел
 import time  # Замер времени выполнения
@@ -125,8 +126,19 @@ def handle_dialog(req, res):
 
 # Обработчик диалога о настольных играх
 def boardgames_dialog(req, res):
+    # Поиск игры по названию или категории
     try:
-        # Поиск игры по названию
+        if 'семейн' in req['request']['command']:
+            boardgames = get_family_games()
+        elif 'стратеги' in req['request']['command']:
+            boardgames = get_strategy_games()
+        elif 'вечерин' in req['request']['command']:
+            boardgames = get_party_games()
+        elif 'случайн' in req['request']['command']:
+            boardgames = random_game()
+        else:
+            boardgames = findgame(sessionStorage.get('game_name', req['request']['original_utterance']))
+
         boardgames = findgame(sessionStorage.get('game_name', req['request']['original_utterance']))
     except ValueError:
         res['response']['text'] = 'Извините, не смогла найти подходящие результаты.'

@@ -331,32 +331,6 @@ class BoardGameFinder:
         finally:
             db_sess.close()
 
-    def get_recommendations(self,
-                            liked_categories: List[str] = [],
-                            disliked_categories: List[str] = [],
-                            min_rating: float = 7.0,
-                            limit: int = 5) -> List[Dict]:
-        """Получает рекомендации игр на основе любимых/нелюбимых категорий"""
-        db_sess = db_session.create_session()
-        try:
-            query = db_sess.query(Boardgames).filter(
-                Boardgames.rating >= min_rating,
-                Boardgames.users_rated >= self.min_users_rated
-            )
-            liked_translated = [self.translator.translate(cat) for cat in liked_categories]
-            disliked_translated = [self.translator.translate(cat) for cat in disliked_categories]
-            for category in liked_translated:
-                query = query.filter(Boardgames.categories.like(f'%{category}%'))
-            for category in disliked_translated:
-                query = query.filter(~Boardgames.categories.like(f'%{category}%'))
-            games = query.order_by(Boardgames.rating.desc()).limit(limit).all()
-            return [self._format_db_game_to_dict(game) for game in games]
-        except Exception as e:
-            logger.error(f"Ошибка получения рекомендаций: {str(e)}")
-            return []
-        finally:
-            db_sess.close()
-
     def get_party_games(self,
                         min_players: int = 4,
                         max_playtime: int = 60,
@@ -455,37 +429,40 @@ def random_game(min_rating: float = 0,
                 min_players: Optional[int] = None,
                 max_players: Optional[int] = None) -> Dict:
     """Публичный интерфейс для получения случайной игры"""
-    return finder.get_random_game(min_rating, min_players, max_players)
-
-# Методы получения рекомендаций:
-    # По предпочтениям
-def get_recommendations(liked_categories: List[str] = [],
-                        disliked_categories: List[str] = [],
-                        min_rating: float = 7.0,
-                        limit: int = 5) -> List[Dict]:
-    """Публичный интерфейс для получения рекомендаций"""
-    return finder.get_recommendations(liked_categories, disliked_categories, min_rating, limit)
+    game = finder.get_random_game(min_rating, min_players, max_players)
+    if not game:
+        raise ValueError
+    return game
 
     # Для вечеринок
 def get_party_games(min_players: int = 4,
                     max_playtime: int = 60,
                     limit: int = 5) -> List[Dict]:
     """Публичный интерфейс для получения вечериночных игр"""
-    return finder.get_party_games(min_players, max_playtime, limit)
+    game = finder.get_party_games(min_players, max_playtime, limit)
+    if not game:
+        raise ValueError
+    return game
 
     # Для семьи
 def get_family_games(max_weight: float = 2.5,
                      min_age: int = 6,
                      limit: int = 5) -> List[Dict]:
     """Публичный интерфейс для получения семейных игр"""
-    return finder.get_family_games(max_weight, min_age, limit)
+    game = finder.get_family_games(max_weight, min_age, limit)
+    if not game:
+        raise ValueError
+    return game
 
     # Стратегические игры
 def get_strategy_games(min_weight: float = 3.0,
                        min_playtime: int = 90,
                        limit: int = 5) -> List[Dict]:
     """Публичный интерфейс для получения стратегических игр"""
-    return finder.get_strategy_games(min_weight, min_playtime, limit)
+    game = finder.get_strategy_games(min_weight, min_playtime, limit)
+    if not game:
+        raise ValueError
+    return game
 
 
 def get_random_game_names(count: int = 3) -> List[str]:
